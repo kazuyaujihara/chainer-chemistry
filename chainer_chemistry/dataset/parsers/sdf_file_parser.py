@@ -1,4 +1,5 @@
 from logging import getLogger
+
 import numpy
 from rdkit import Chem
 from tqdm import tqdm
@@ -13,48 +14,59 @@ class SDFFileParser(BaseFileParser):
     """sdf file parser
 
     Args:
-        filepath:
-        preprocessor:
+        preprocessor (BasePreprocessor): preprocessor instance
         labels (str or list): labels column
         postprocess_label (Callable): post processing function if necessary
         postprocess_fn (Callable): post processing function if necessary
+        logger:
     """
 
     def __init__(self, preprocessor, labels=None, postprocess_label=None,
-                 postprocess_fn=None):
+                 postprocess_fn=None, logger=None):
         super(SDFFileParser, self).__init__(preprocessor)
         self.labels = labels
         self.postprocess_label = postprocess_label
         self.postprocess_fn = postprocess_fn
-        self.smiles = None
+        self.logger = logger or getLogger(__name__)
 
-    def parse(self, filepath, retain_smiles=False):
+    def parse(self, filepath, return_smiles=False, target_index=None):
         """parse sdf file using `preprocessor`
 
         Note that label is extracted from preprocessor's method.
 
         Args:
             filepath (str): file path to be parsed.
-            retain_smiles (bool): If set to True, smiles list is saved to
-                `smiles` property.
+            return_smiles (bool): If set to True, this function returns
+                preprocessed dataset and smiles list.
+                If set to False, this function returns preprocessed dataset and
+                `None`.
+            target_index (list or None): target index list to partially extract
+                dataset. If None (default), all examples are parsed.
 
-        Returns: Dataset
+        Returns (dict): dictionary that contains Dataset, 1-d numpy array with
+            dtype=object(string) which is a vector of smiles for each example
+            or None.
 
         """
-        logger = getLogger(__name__)
+        logger = self.logger
         pp = self.preprocessor
-        if retain_smiles:
-            self.smiles = []  # Initialize
+        smiles_list = []
 
         if isinstance(pp, MolPreprocessor):
             mol_supplier = Chem.SDMolSupplier(filepath)
+
+            if target_index is None:
+                target_index = list(range(len(mol_supplier)))
 
             features = None
 
             total_count = len(mol_supplier)
             fail_count = 0
             success_count = 0
-            for mol in tqdm(mol_supplier):
+            for index in tqdm(target_index):
+                # `mol_supplier` does not accept numpy.integer, we must use int
+                mol = mol_supplier[int(index)]
+
                 if mol is None:
                     total_count -= 1
                     continue
@@ -87,16 +99,15 @@ class SDFFileParser(BaseFileParser):
                             num_features += 1
                         features = [[] for _ in range(num_features)]
 
-                    if retain_smiles:
+                    if return_smiles:
                         assert standardized_smiles == Chem.MolToSmiles(mol)
-                        self.smiles.append(standardized_smiles)
+                        smiles_list.append(standardized_smiles)
                 except MolFeatureExtractionError as e:
                     # This is expected error that extracting feature failed,
                     # skip this molecule.
                     fail_count += 1
                     continue
                 except Exception as e:
-                    logger = getLogger(__name__)
                     logger.warning('parse() error, type: {}, {}'
                                    .format(type(e).__name__, e.args))
                     continue
@@ -129,11 +140,32 @@ class SDFFileParser(BaseFileParser):
             # Spec not finalized yet for general case
             result = pp.process(filepath)
 
+        smileses = numpy.array(smiles_list) if return_smiles else None
+
         if isinstance(result, tuple):
             if self.postprocess_fn is not None:
                 result = self.postprocess_fn(*result)
-            return NumpyTupleDataset(*result)
+            return {"dataset": NumpyTupleDataset(*result), "smiles": smileses}
         else:
             if self.postprocess_fn is not None:
                 result = self.postprocess_fn(result)
-            return NumpyTupleDataset(result)
+                result = NumpyTupleDataset(result)
+            return {"dataset": NumpyTupleDataset(result), "smiles": smileses}
+
+    def extract_total_num(self, filepath):
+        """Extracts total number of data which can be parsed
+
+        We can use this method to determine the value fed to `target_index`
+        option of `parse` method. For example, if we want to extract input
+        feature from 10% of whole dataset, we need to know how many samples
+        are in a file. The returned value of this method may not to be same as
+        the final dataset size.
+
+        Args:
+            filepath (str): file path of to check the total number.
+
+        Returns (int): total number of dataset can be parsed.
+
+        """
+        mol_supplier = Chem.SDMolSupplier(filepath)
+        return len(mol_supplier)

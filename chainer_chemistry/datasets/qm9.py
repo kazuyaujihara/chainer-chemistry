@@ -8,6 +8,7 @@ import tempfile
 from chainer.dataset import download
 import numpy
 import pandas
+from tqdm import tqdm
 
 from chainer_chemistry.dataset.parsers.csv_file_parser import CSVFileParser
 from chainer_chemistry.dataset.preprocessors.atomic_number_preprocessor import AtomicNumberPreprocessor  # NOQA
@@ -27,16 +28,19 @@ def get_qm9_label_names():
     return _label_names
 
 
-def get_qm9(preprocessor=None, labels=None, retain_smiles=False):
+def get_qm9(preprocessor=None, labels=None, return_smiles=False,
+            target_index=None):
     """Downloads, caches and preprocesses QM9 dataset.
 
     Args:
-        preprocesssor (BasePreprocessor): Preprocessor.
+        preprocessor (BasePreprocessor): Preprocessor.
             This should be chosen based on the network to be trained.
             If it is None, default `AtomicNumberPreprocessor` is used.
         labels (str or list): List of target labels.
-        retain_smiles (bool): If set to ``True``,
-            smiles list is also returned.
+        return_smiles (bool): If set to ``True``,
+            smiles array is also returned.
+        target_index (list or None): target index list to partially extract
+            dataset. If None (default), all examples are parsed.
 
     Returns:
         dataset, which is composed of `features`, which depends on
@@ -55,11 +59,13 @@ def get_qm9(preprocessor=None, labels=None, retain_smiles=False):
         preprocessor = AtomicNumberPreprocessor()
     parser = CSVFileParser(preprocessor, postprocess_label=postprocess_label,
                            labels=labels, smiles_col='SMILES1')
-    dataset = parser.parse(get_qm9_filepath(), retain_smiles=retain_smiles)
-    if retain_smiles:
-        return dataset, parser.smiles
+    result = parser.parse(get_qm9_filepath(), return_smiles=return_smiles,
+                          target_index=target_index)
+
+    if return_smiles:
+        return result['dataset'], result['smiles']
     else:
-        return dataset
+        return result['dataset']
 
 
 def get_qm9_filepath(download_if_not_exist=True):
@@ -85,7 +91,7 @@ def get_qm9_filepath(download_if_not_exist=True):
 
 
 def _get_qm9_filepath():
-    """Construct a filepath which stores tox21 dataset for config_name
+    """Construct a filepath which stores QM9 dataset in csv
 
     This method does not check if the file is already downloaded or not.
 
@@ -99,21 +105,23 @@ def _get_qm9_filepath():
 
 def download_and_extract_qm9(save_filepath):
     logger = getLogger(__name__)
-    logger.info('extracting qm9 dataset...')
+    logger.warning('Extracting QM9 dataset, it takes time...')
     download_file_path = download.cached_download(download_url)
     tf = tarfile.open(download_file_path, 'r')
     temp_dir = tempfile.mkdtemp()
     tf.extractall(temp_dir)
     file_re = os.path.join(temp_dir, '*.xyz')
     file_pathes = glob.glob(file_re)
+    # Make sure the order is sorted
+    file_pathes.sort()
     ls = []
-    for path in file_pathes:
+    for path in tqdm(file_pathes):
         with open(path, 'r') as f:
             data = [line.strip() for line in f]
 
         num_atom = int(data[0])
         properties = list(map(float, data[1].split('\t')[1:]))
-        smiles = data[3+num_atom].split('\t')
+        smiles = data[3 + num_atom].split('\t')
         new_ls = smiles + properties
         ls.append(new_ls)
 

@@ -28,7 +28,7 @@ def test_atomic_number_preprocessor(mol, pp):
     numpy.testing.assert_array_equal(actual_atom_array, expect_atom_array)
 
 
-# TODO (Oono)
+# TODO(Oono)
 # Test non-default max_atom and non-default zero_padding options, respectively
 # after the discussion of the issue #60.
 
@@ -38,7 +38,8 @@ def test_atomic_number_preprocessor_with_tox21():
     preprocessor = AtomicNumberPreprocessor()
 
     # labels=None as default, and label information is not returned.
-    dataset = SDFFileParser(preprocessor).parse(get_tox21_filepath('train'))
+    dataset = SDFFileParser(preprocessor)\
+        .parse(get_tox21_filepath('train'))['dataset']
     index = numpy.random.choice(len(dataset), None)
     atoms, = dataset[index]
 
@@ -48,7 +49,7 @@ def test_atomic_number_preprocessor_with_tox21():
 
 def test_atomic_number_preprocessor_assert_raises():
     with pytest.raises(ValueError):
-        pp = AtomicNumberPreprocessor(max_atoms=3, out_size=2)
+        pp = AtomicNumberPreprocessor(max_atoms=3, out_size=2)  # NOQA
 
 
 if __name__ == '__main__':

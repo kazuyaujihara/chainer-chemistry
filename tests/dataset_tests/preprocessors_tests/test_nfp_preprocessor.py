@@ -33,7 +33,7 @@ def test_nfp_preprocessor(mol, pp):
     numpy.testing.assert_array_equal(actual_adj_array, expect_adj_array)
 
 
-# TODO (Oono)
+# TODO(Oono)
 # Test non-default max_atom and non-default zero_padding options, respectively
 # after the discussion of the issue #60.
 
@@ -43,7 +43,7 @@ def test_nfp_preprocessor_with_tox21():
     preprocessor = NFPPreprocessor()
 
     dataset = SDFFileParser(preprocessor, postprocess_label=None
-                            ).parse(get_tox21_filepath('train'))
+                            ).parse(get_tox21_filepath('train'))['dataset']
 
     index = numpy.random.choice(len(dataset), None)
     atoms, adjs = dataset[index]
@@ -57,7 +57,7 @@ def test_nfp_preprocessor_with_tox21():
 
 def test_nfp_preprocessor_assert_raises():
     with pytest.raises(ValueError):
-        pp = NFPPreprocessor(max_atoms=3, out_size=2)
+        pp = NFPPreprocessor(max_atoms=3, out_size=2)  # NOQA
 
 
 if __name__ == '__main__':

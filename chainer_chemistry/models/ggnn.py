@@ -2,7 +2,6 @@ import chainer
 from chainer import cuda
 from chainer import functions
 from chainer import links
-import numpy
 
 import chainer_chemistry
 from chainer_chemistry.config import MAX_ATOMIC_NUM
@@ -34,7 +33,7 @@ class GGNN(chainer.Chain):
                  n_layers=4, n_atom_types=MAX_ATOMIC_NUM, concat_hidden=False,
                  weight_tying=True):
         super(GGNN, self).__init__()
-        n_readout_layer = 1 if concat_hidden else n_layers
+        n_readout_layer = n_layers if concat_hidden else 1
         n_message_layer = 1 if weight_tying else n_layers
         with self.init_scope():
             # Update
@@ -67,9 +66,9 @@ class GGNN(chainer.Chain):
         message_layer_index = 0 if self.weight_tying else step
         m = functions.reshape(self.message_layers[message_layer_index](h),
                               (mb, atom, out_ch, self.NUM_EDGE_TYPE))
-        # m: (minibatch, ch, atom, edge_type)
+        # m: (minibatch, atom, ch, edge_type)
         # Transpose
-        m = functions.transpose(m, (0, 3, 2, 1))
+        m = functions.transpose(m, (0, 3, 1, 2))
         # m: (minibatch, edge_type, atom, ch)
 
         adj = functions.reshape(adj, (mb * self.NUM_EDGE_TYPE, atom, atom))
@@ -135,7 +134,7 @@ class GGNN(chainer.Chain):
                 g_list.append(g)
 
         if self.concat_hidden:
-            return functions.concat(g_list, axis=2)
+            return functions.concat(g_list, axis=1)
         else:
             g = self.readout(h, h0, 0)
             return g

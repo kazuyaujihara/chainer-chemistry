@@ -60,22 +60,22 @@ def main():
     parser.add_argument('--gpu', '-g', type=int, default=-1,
                         help='GPU ID to use. Negative value indicates '
                         'not to use GPU and to run the code in CPU.')
+    parser.add_argument('--num-data', type=int, default=-1,
+                        help='Number of data to be parsed from parser.'
+                             '-1 indicates to parse all data.')
     args = parser.parse_args()
 
     with open(os.path.join(args.in_dir, 'config.json'), 'r') as i:
         config = json.loads(i.read())
 
     method = config['method']
-    if method == 'schnet':
-        raise ValueError('Currently SchNet does not support prediction.')
-
     labels = config['labels']
     if labels:
         class_num = len(labels) if isinstance(labels, list) else 1
     else:
         class_num = len(label_names)
 
-    _, test, _ = data.load_dataset(method, labels)
+    _, test, _ = data.load_dataset(method, labels, num_data=args.num_data)
     test = test.get_datasets()
     X_test = D.NumpyTupleDataset(*test[:-1])
     y_test = test[-1]
@@ -88,7 +88,8 @@ def main():
         snapshot_file = _find_latest_snapshot(args.in_dir)
     print('Loading pretrained model parameters from {}'.format(snapshot_file))
     chainer.serializers.load_npz(snapshot_file,
-                                 predictor_, 'updater/model:main/predictor/')
+                                 predictor_, 'updater/model:main/predictor/',
+                                 strict=False)
 
     if args.gpu >= 0:
         chainer.cuda.get_device_from_id(args.gpu).use()
