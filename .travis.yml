@@ -8,7 +8,8 @@ python:
   - 3.5
   - 3.6
 env:
-  - CHAINER_VERSION="chainer<3"
+env:
+  - CHAINER_VERSION="chainer<4"
   - CHAINER_VERSION="chainer"
   - CHAINER_VERSION="prerelease"
 
@@ -25,7 +26,7 @@ install:
   - pip install codecov
   - pip install mock
   - conda install pip pytest pytest-cov
-  - conda install -c rdkit rdkit
+  - conda install -c rdkit rdkit==2017.09.3.0
   - if [ "${CHAINER_VERSION}" = "prerelease" ]; then
       pip install --pre chainer;
     else
@@ -34,7 +35,12 @@ install:
   - pip install --no-cache-dir -e .
 
 script:
-  - pytest --cov=./ -m "not (gpu or slow)" tests
+  - if [ "${TRAVIS_EVENT_TYPE}" = "cron" ]; then
+      pytest --cov=./ -m "not gpu" tests;
+      (cd examples && bash -x test_examples.sh -1);
+    else
+      pytest --cov=./ -m "not (gpu or slow)" tests;
+    fi
 
 after_success:
   - codecov

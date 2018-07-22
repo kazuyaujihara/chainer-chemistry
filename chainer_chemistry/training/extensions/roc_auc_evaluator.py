@@ -1,28 +1,9 @@
-import copy
-
 import numpy
 
-import chainer
-from chainer import cuda
 from chainer.dataset import convert
-from chainer import reporter
-from chainer.training.extensions import Evaluator
 from sklearn import metrics
 
-
-def _get_1d_numpy_array(v):
-    """Convert array or Variable to 1d numpy array
-
-    Args:
-        v (numpy.ndarray or cupy.ndarray or chainer.Variable): array to be
-            converted to 1d numpy array
-
-    Returns (numpy.ndarray): Raveled 1d numpy array
-
-    """
-    if isinstance(v, chainer.Variable):
-        v = v.data
-    return cuda.to_cpu(v).ravel()
+from chainer_chemistry.training.extensions.batch_evaluator import BatchEvaluator  # NOQA
 
 
 def _to_list(a):
@@ -41,7 +22,7 @@ def _to_list(a):
         return a
 
 
-class ROCAUCEvaluator(Evaluator):
+class ROCAUCEvaluator(BatchEvaluator):
 
     """Evaluator which calculates ROC AUC score
 
@@ -73,6 +54,10 @@ class ROCAUCEvaluator(Evaluator):
             are considered as negative.
         ignore_labels (int or list or None): labels to be ignored.
             `None` is used to not ignore all labels.
+        raise_value_error (bool): If `False`, `ValueError` caused by
+            `roc_auc_score` calculation is suppressed and ignored with a
+            warning message.
+        logger:
 
     Attributes:
         converter: Converter function.
@@ -86,43 +71,19 @@ class ROCAUCEvaluator(Evaluator):
 
     def __init__(self, iterator, target, converter=convert.concat_examples,
                  device=None, eval_hook=None, eval_func=None, name=None,
-                 pos_labels=1, ignore_labels=None):
+                 pos_labels=1, ignore_labels=None, raise_value_error=True,
+                 logger=None):
+        metrics_fun = {'roc_auc': self.roc_auc_score}
         super(ROCAUCEvaluator, self).__init__(
             iterator, target, converter=converter, device=device,
-            eval_hook=eval_hook, eval_func=eval_func)
-        self.name = name
+            eval_hook=eval_hook, eval_func=eval_func, metrics_fun=metrics_fun,
+            name=name, logger=logger)
+
         self.pos_labels = _to_list(pos_labels)
         self.ignore_labels = _to_list(ignore_labels)
+        self.raise_value_error = raise_value_error
 
-    def evaluate(self):
-        iterator = self._iterators['main']
-        eval_func = self.eval_func or self._targets['main']
-
-        if self.eval_hook:
-            self.eval_hook(self)
-
-        if hasattr(iterator, 'reset'):
-            iterator.reset()
-            it = iterator
-        else:
-            it = copy.copy(iterator)
-
-        y_total = []
-        t_total = []
-        for batch in it:
-            in_arrays = self.converter(batch, self.device)
-            with chainer.no_backprop_mode(), chainer.using_config('train',
-                                                                  False):
-                y = eval_func(*in_arrays[:-1])
-            t = in_arrays[-1]
-            y_data = _get_1d_numpy_array(y)
-            t_data = _get_1d_numpy_array(t)
-            y_total.append(y_data)
-            t_total.append(t_data)
-
-        y_total = numpy.concatenate(y_total).ravel()
-        t_total = numpy.concatenate(t_total).ravel()
-
+    def roc_auc_score(self, y_total, t_total):
         # --- ignore labels if specified ---
         if self.ignore_labels:
             valid_ind = numpy.in1d(t_total, self.ignore_labels, invert=True)
@@ -132,9 +93,16 @@ class ROCAUCEvaluator(Evaluator):
         # --- set positive labels to 1, negative labels to 0 ---
         pos_indices = numpy.in1d(t_total, self.pos_labels)
         t_total = numpy.where(pos_indices, 1, 0)
-        roc_auc = metrics.roc_auc_score(t_total, y_total)
-
-        observation = {}
-        with reporter.report_scope(observation):
-            reporter.report({'roc_auc': roc_auc}, self._targets['main'])
-        return observation
+        try:
+            roc_auc = metrics.roc_auc_score(t_total, y_total)
+        except ValueError as e:
+            # When only one class present in `y_true`, `ValueError` is raised.
+            # ROC AUC score is not defined in that case.
+            if self.raise_value_error:
+                raise e
+            else:
+                self.logger.warning(
+                    'ValueError detected during roc_auc_score calculation. {}'
+                    .format(e.args))
+                roc_auc = numpy.nan
+        return roc_auc

@@ -1,3 +1,4 @@
+from chainer_chemistry.datasets import molnet  # NOQA
 from chainer_chemistry.datasets import qm9  # NOQA
 from chainer_chemistry.datasets import tox21  # NOQA
 

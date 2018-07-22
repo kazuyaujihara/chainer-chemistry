@@ -1,9 +1,8 @@
-from chainer_chemistry.dataset.preprocessors.common import construct_adj_matrix
-from chainer_chemistry.dataset.preprocessors.common \
-    import construct_atomic_number_array
-from chainer_chemistry.dataset.preprocessors.common import type_check_num_atoms
-from chainer_chemistry.dataset.preprocessors.mol_preprocessor \
-    import MolPreprocessor
+from chainer_chemistry.dataset.preprocessors.common import construct_adj_matrix  # NOQA
+from chainer_chemistry.dataset.preprocessors.common import construct_atomic_number_array  # NOQA
+from chainer_chemistry.dataset.preprocessors.common import type_check_num_atoms  # NOQA
+from chainer_chemistry.dataset.preprocessors.mol_preprocessor import MolPreprocessor  # NOQA
+
 
 import numpy
 
@@ -42,15 +41,19 @@ class RSGCNPreprocessor(MolPreprocessor):
 
         """
         type_check_num_atoms(mol, self.max_atoms)
+        num_atoms = mol.GetNumAtoms()
+
+        # Construct the atom array and adjacency matrix.
         atom_array = construct_atomic_number_array(mol, out_size=self.out_size)
         adj_array = construct_adj_matrix(mol, out_size=self.out_size)
 
-        # adjust adjacent matrix
-        degree_vec = numpy.sum(adj_array, axis=1)
+        # Adjust the adjacency matrix.
+        degree_vec = numpy.sum(adj_array[:num_atoms], axis=1)
         degree_sqrt_inv = 1. / numpy.sqrt(degree_vec)
-        adj_array *= numpy.broadcast_to(degree_sqrt_inv[:, None],
-                                        adj_array.shape)
-        adj_array *= numpy.broadcast_to(degree_sqrt_inv[None, :],
-                                        adj_array.shape)
+
+        adj_array[:num_atoms, :num_atoms] *= numpy.broadcast_to(
+            degree_sqrt_inv[:, None], (num_atoms, num_atoms))
+        adj_array[:num_atoms, :num_atoms] *= numpy.broadcast_to(
+            degree_sqrt_inv[None, :], (num_atoms, num_atoms))
 
         return atom_array, adj_array

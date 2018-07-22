@@ -35,6 +35,8 @@ Parsers
    chainer_chemistry.dataset.parsers.BaseParser
    chainer_chemistry.dataset.parsers.CSVFileParser
    chainer_chemistry.dataset.parsers.SDFFileParser
+   chainer_chemistry.dataset.parsers.DataFrameParser
+   chainer_chemistry.dataset.parsers.SmilesParser
 
 
 Preprocessors
@@ -77,3 +79,16 @@ Utilities
    chainer_chemistry.dataset.preprocessors.type_check_num_atoms
    chainer_chemistry.dataset.preprocessors.construct_atomic_number_array
    chainer_chemistry.dataset.preprocessors.construct_adj_matrix
+
+
+
+Splitters
+==========
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   chainer_chemistry.dataset.splitters.RandomSplitter
+   chainer_chemistry.dataset.splitters.StratifiedSplitter
+   chainer_chemistry.dataset.splitters.ScaffoldSplitter
