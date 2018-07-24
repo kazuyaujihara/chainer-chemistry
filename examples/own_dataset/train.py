@@ -96,7 +96,6 @@ def main():
     parser.add_argument('--seed', '-s', type=int, default=777)
     parser.add_argument('--train-data-ratio', '-t', type=float, default=0.7)
     parser.add_argument('--protocol', type=int, default=2)
-
     parser.add_argument('--predict', type=str, default=None)
 
     args = parser.parse_args()
@@ -110,50 +109,54 @@ def main():
     else:
         sys.exit("Error: No target label is specified.")
 
-    # Dataset preparation
-    # Postprocess is required for regression task
-    def postprocess_label(label_list):
-        return numpy.asarray(label_list, dtype=numpy.float32)
-
-    print('Preprocessing dataset...')
-    preprocessor = preprocess_method_dict[method]()
-    parser = CSVFileParser(preprocessor,
-                            postprocess_label=postprocess_label,
-                            labels=labels, smiles_col='SMILES')
-    dataset = parser.parse(args.datafile)["dataset"]
-
-    if args.scale == 'standardize':
-        # Standard Scaler for labels
-        scaler = StandardScaler()
-        labels = scaler.fit_transform(dataset.get_datasets()[-1])
-        dataset = NumpyTupleDataset(*(dataset.get_datasets()[:-1] + (labels,)))
+    if args.predict is not None:
+        with open(os.path.join(args.out, 'scaler.pkl'), mode='rb') as f:
+            scaler = pickle.load(f)
     else:
-        # Not use scaler
-        scaler = None
+        def postprocess_label(label_list):
+            return numpy.asarray(label_list, dtype=numpy.float32)
 
-    train_data_size = int(len(dataset) * train_data_ratio)
-    train, val = split_dataset_random(dataset, train_data_size, seed)
+        # Dataset preparation
+        # Postprocess is required for regression task
+        print('Preprocessing dataset...')
+        preprocessor = preprocess_method_dict[method]()
+        parser = CSVFileParser(preprocessor,
+                                postprocess_label=postprocess_label,
+                                labels=labels, smiles_col='SMILES')
+        dataset = parser.parse(args.datafile)["dataset"]
+
+        if args.scale == 'standardize':
+            # Standard Scaler for labels
+            scaler = StandardScaler()
+            labels = scaler.fit_transform(dataset.get_datasets()[-1])
+            dataset = NumpyTupleDataset(*(dataset.get_datasets()[:-1] + (labels,)))
+        else:
+            # Not use scaler
+            scaler = None
+
+        train_data_size = int(len(dataset) * train_data_ratio)
+        train, val = split_dataset_random(dataset, train_data_size, seed)
 
     # Network
     n_unit = args.unit_num
     conv_layers = args.conv_layers
     if method == 'nfp':
-        print('Train NFP model...')
+        print('Use NFP model...')
         model = GraphConvPredictor(NFP(out_dim=n_unit, hidden_dim=n_unit,
                                         n_layers=conv_layers),
                                     MLP(out_dim=class_num, hidden_dim=n_unit))
     elif method == 'ggnn':
-        print('Train GGNN model...')
+        print('Use GGNN model...')
         model = GraphConvPredictor(GGNN(out_dim=n_unit, hidden_dim=n_unit,
                                         n_layers=conv_layers),
                                     MLP(out_dim=class_num, hidden_dim=n_unit))
     elif method == 'schnet':
-        print('Train SchNet model...')
+        print('Use SchNet model...')
         model = GraphConvPredictor(
             SchNet(out_dim=class_num, hidden_dim=n_unit, n_layers=conv_layers),
             None)
     elif method == 'weavenet':
-        print('Train WeaveNet model...')
+        print('Use WeaveNet model...')
         n_atom = 20
         n_sub_layer = 1
         weave_channels = [50] * conv_layers
@@ -162,16 +165,19 @@ def main():
                         n_sub_layer=n_sub_layer, n_atom=n_atom),
             MLP(out_dim=class_num, hidden_dim=n_unit))
     elif method == 'rsgcn':
-        print('Train RSGCN model...')
+        print('Use RSGCN model...')
         model = GraphConvPredictor(
             RSGCN(out_dim=n_unit, hidden_dim=n_unit, n_layers=conv_layers),
             MLP(out_dim=class_num, hidden_dim=n_unit))
     else:
         raise ValueError('[ERROR] Invalid method {}'.format(method))
 
-    train_iter = iterators.SerialIterator(train, args.batchsize)
-    val_iter = iterators.SerialIterator(
-        val, args.batchsize, repeat=False, shuffle=False)
+    if args.predict is not None:
+        ()
+    else:
+        train_iter = iterators.SerialIterator(train, args.batchsize)
+        val_iter = iterators.SerialIterator(
+            val, args.batchsize, repeat=False, shuffle=False)
 
     regressor = Regressor(
         model, lossfun=F.mean_squared_error,
@@ -179,26 +185,11 @@ def main():
         device=args.gpu)
    
     if args.predict is not None:
-        regressor = Regressor(
-            model, lossfun=F.mean_squared_error,
-            metrics_fun={'abs_error': ScaledAbsError(scaler=scaler)},
-            device=args.gpu)
-
         protocol = args.protocol
         model_path = os.path.join(args.out, 'model.npz')
         print('loading trained model from {}'.format(model_path))
         serializers.load_npz(model_path, regressor)
-
         smiles = args.predict
-        mol = Chem.MolFromSmiles(smiles)
-        preprocessor = preprocess_method_dict[method]()
-        standardized_smiles, mol = preprocessor.prepare_smiles_and_mol(mol)
-        input_features = preprocessor.get_input_features(mol)
-        atoms, adjs = concat_mols([input_features], device=args.gpu)
-        prediction = model(atoms, adjs).data[0]
-        print('Prediction for {}:'.format(smiles))
-        for i, label in enumerate(args.label):
-            print('{}: {}'.format(label, prediction[i]))
     else:
         optimizer = optimizers.Adam()
         optimizer.setup(regressor)
@@ -227,18 +218,20 @@ def main():
         if scaler is not None:
             with open(os.path.join(args.out, 'scaler.pkl'), mode='wb') as f:
                 pickle.dump(scaler, f, protocol=protocol)
-
-        # Example of prediction using trained model
         smiles = 'c1ccccc1'
-        mol = Chem.MolFromSmiles(smiles)
-        preprocessor = preprocess_method_dict[method]()
-        standardized_smiles, mol = preprocessor.prepare_smiles_and_mol(mol)
-        input_features = preprocessor.get_input_features(mol)
-        atoms, adjs = concat_mols([input_features], device=args.gpu)
-        prediction = model(atoms, adjs).data[0]
-        print('Prediction for {}:'.format(smiles))
-        for i, label in enumerate(args.label):
-            print('{}: {}'.format(label, prediction[i]))
+
+    # Example of prediction using trained model
+    mol = Chem.MolFromSmiles(smiles)
+    preprocessor = preprocess_method_dict[method]()
+    standardized_smiles, mol = preprocessor.prepare_smiles_and_mol(mol)
+    input_features = preprocessor.get_input_features(mol)
+    atoms, adjs = concat_mols([input_features], device=args.gpu)
+    prediction = model(atoms, adjs).data[0]
+    print('Prediction for {}:'.format(smiles))
+        
+    p = scaler.inverse_transform(prediction)
+    for i, label in enumerate(args.label):
+        print('{}: {}'.format(label, p[i]))
 
 if __name__ == '__main__':
     main()
