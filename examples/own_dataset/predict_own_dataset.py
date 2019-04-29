@@ -24,6 +24,7 @@ from sklearn.preprocessing import StandardScaler  # NOQA
 from chainer_chemistry.models.prediction import GraphConvPredictor  # NOQA
 from train_own_dataset import MeanAbsError, RootMeanSqrError  # NOQA
 
+from rdkit import Chem
 
 class ScaledGraphConvPredictor(GraphConvPredictor):
     def __init__(self, *args, **kwargs):
@@ -81,6 +82,7 @@ def parse_arguments():
                         help='directory containing the saved model')
     parser.add_argument('--model-filename', type=str, default='regressor.pkl',
                         help='saved model filename')
+    parser.add_argument('--predict', type=str, default=None)
     return parser.parse_args()
 
 
@@ -101,7 +103,6 @@ def main():
     preprocessor = preprocess_method_dict[args.method]()
     parser = CSVFileParser(preprocessor, postprocess_label=postprocess_label,
                            labels=labels, smiles_col='SMILES')
-    dataset = parser.parse(args.datafile)['dataset']
 
     # Load the standard scaler parameters, if necessary.
     if args.scale == 'standardize':
@@ -109,7 +110,6 @@ def main():
             scaler = pickle.load(f)
     else:
         scaler = None
-    test = dataset
 
     print('Predicting...')
     # Set up the regressor.
@@ -121,13 +121,25 @@ def main():
 
     # Perform the prediction.
     print('Evaluating...')
-    test_iterator = SerialIterator(test, 16, repeat=False, shuffle=False)
-    eval_result = Evaluator(test_iterator, regressor, converter=concat_mols,
-                            device=args.gpu)()
-    print('Evaluation result: ', eval_result)
+    if args.predict is None:
+        dataset = parser.parse(args.datafile)['dataset']
+        test = dataset
+        test_iterator = SerialIterator(test, 16, repeat=False, shuffle=False)
+        eval_result = Evaluator(test_iterator, regressor, converter=concat_mols,
+                                device=args.gpu)()
+        print('Evaluation result: ', eval_result)
 
-    with open(os.path.join(args.in_dir, 'eval_result.json'), 'w') as f:
-        json.dump(eval_result, f)
+        with open(os.path.join(args.in_dir, 'eval_result.json'), 'w') as f:
+            json.dump(eval_result, f)
+    else:
+        smiles = args.predict
+        mol = Chem.MolFromSmiles(smiles)
+        standardized_smiles, mol = preprocessor.prepare_smiles_and_mol(mol)
+        input_features = preprocessor.get_input_features(mol)
+        atoms, adjs = concat_mols([input_features], device=args.gpu)
+        predicted = scaled_predictor(atoms, adjs)
+        print('Prediction for {}:'.format(standardized_smiles)),
+        print('{}: {}'.format(args.label, predicted))
 
 
 if __name__ == '__main__':
