@@ -65,7 +65,6 @@ def parse_arguments():
                         help='saved model filename')
     return parser.parse_args()
 
-
 def main():
     # Parse the arguments.
     args = parse_arguments()
@@ -92,6 +91,11 @@ def main():
     device = chainer.get_device(args.device)
     model_path = os.path.join(args.in_dir, args.model_filename)
     regressor = Regressor.load_pickle(model_path, device=device)
+
+    def extract_inputs(batch, device=None): 
+        return concat_mols(batch, device=device)[:-1] 
+
+    print(regressor.predict(test, converter=extract_inputs, postprocess_fn=None))
 
     # Perform the prediction.
     print('Evaluating...')
